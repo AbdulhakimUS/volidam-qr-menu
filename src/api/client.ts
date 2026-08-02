@@ -63,7 +63,11 @@ async function request<T>(
       body && typeof body === 'object' && 'error' in body
         ? String((body as { error: string }).error)
         : `Request failed (${res.status})`;
-    throw new ApiError(errMsg, res.status);
+    const clean =
+      errMsg.trimStart().startsWith('<!') || errMsg.includes('<html')
+        ? `API недоступен (${res.status}). На проде нужен URL бэкенда (VITE_API_URL).`
+        : errMsg;
+    throw new ApiError(clean, res.status);
   }
 
   if (body && typeof body === 'object' && 'success' in body) {

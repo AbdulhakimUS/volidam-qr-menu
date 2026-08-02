@@ -1,0 +1,5 @@
+# SPA fallback (HashRouter mostly doesn't need this, but keeps deep links safe)
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
