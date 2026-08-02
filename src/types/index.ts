@@ -17,10 +17,13 @@ export interface Category {
   en: string;
 }
 
+export type AdminRole = 'super' | 'admin';
+
 export interface AdminUser {
   username: string;
   passwordHash: string;
   salt: string;
+  role: AdminRole;
   createdAt: number;
 }
 

@@ -1,20 +1,27 @@
-import { useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useLocation } from 'react-router-dom';
 import { useLang } from '../context/LangContext';
 import { useTheme } from '../context/ThemeContext';
 import { useMenu } from '../context/MenuContext';
+import { CATEGORY_GROUPS, groupForTag } from '../data/categories';
 import type { Lang, MenuItem } from '../types';
 import { TrayIcon, SearchIcon, EmptyIcon, SunIcon, MoonIcon } from '../components/Icons';
 import ItemCard from '../components/ItemCard';
 import ItemModal from '../components/ItemModal';
 
+interface NavState {
+  group?: string;
+}
+
 export default function MenuPage() {
   const { lang, setLang, t } = useLang();
   const { theme, toggleTheme } = useTheme();
   const { items, categories } = useMenu();
+  const location = useLocation();
   const [query, setQuery] = useState('');
   const [activeItem, setActiveItem] = useState<MenuItem | null>(null);
   const sectionRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const groupRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const langs: Lang[] = ['ru', 'uz', 'en'];
 
   const filtered = useMemo(() => {
@@ -33,6 +40,22 @@ export default function MenuPage() {
   }, [filtered]);
 
   const activeCats = categories.filter((c) => items.some((i) => i.tag === c.tag));
+
+  // Scroll to the group requested from the Welcome screen, once sections exist.
+  useEffect(() => {
+    const state = location.state as NavState | null;
+    const groupKey = state?.group;
+    if (!groupKey) return;
+    const raf = requestAnimationFrame(() => {
+      const el = groupRefs.current.get(groupKey);
+      if (el) {
+        const y = el.getBoundingClientRect().top + window.scrollY - 132;
+        window.scrollTo({ top: y, behavior: 'smooth' });
+      }
+    });
+    return () => cancelAnimationFrame(raf);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.key, items.length]);
 
   const scrollToCategory = (tag: string) => {
     if (tag === 'all') {
@@ -74,7 +97,7 @@ export default function MenuPage() {
           </div>
         </div>
         <div className="cat-row">
-          <button className="chip active-none chip" onClick={() => scrollToCategory('all')}>
+          <button className="chip" onClick={() => scrollToCategory('all')}>
             {t('all')}
           </button>
           {activeCats.map((c) => (
@@ -92,23 +115,38 @@ export default function MenuPage() {
             <div>{t('empty')}</div>
           </div>
         ) : (
-          activeCats
-            .filter((c) => grouped.get(c.tag)?.length)
-            .map((c) => (
+          CATEGORY_GROUPS.map((group) => {
+            const catsInGroup = activeCats.filter((c) => groupForTag(c.tag).key === group.key && grouped.get(c.tag)?.length);
+            if (catsInGroup.length === 0) return null;
+            return (
               <div
-                key={c.tag}
+                key={group.key}
                 ref={(el) => {
-                  if (el) sectionRefs.current.set(c.tag, el);
+                  if (el) groupRefs.current.set(group.key, el);
                 }}
               >
-                <div className="section-title">{c[lang]}</div>
-                <div className="grid">
-                  {grouped.get(c.tag)!.map((it) => (
-                    <ItemCard key={it.id} item={it} onClick={() => setActiveItem(it)} />
-                  ))}
+                <div className="group-title">
+                  {group[lang]}
+                  <span className="bar" />
                 </div>
+                {catsInGroup.map((c) => (
+                  <div
+                    key={c.tag}
+                    ref={(el) => {
+                      if (el) sectionRefs.current.set(c.tag, el);
+                    }}
+                  >
+                    <div className="section-title">{c[lang]}</div>
+                    <div className="grid">
+                      {grouped.get(c.tag)!.map((it) => (
+                        <ItemCard key={it.id} item={it} onClick={() => setActiveItem(it)} />
+                      ))}
+                    </div>
+                  </div>
+                ))}
               </div>
-            ))
+            );
+          })
         )}
       </div>
 

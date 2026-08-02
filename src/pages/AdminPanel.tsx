@@ -253,7 +253,16 @@ function MenuTab({ onToast }: { onToast: (m: string) => void }) {
 
 function UsersTab({ onToast }: { onToast: (m: string) => void }) {
   const { t } = useLang();
-  const { currentUser, users, createUser, changeOwnPassword, changeOwnUsername, deleteUser } = useAuth();
+  const {
+    currentUser,
+    isSuperAdmin,
+    users,
+    createUser,
+    changeOwnPassword,
+    changeOwnUsername,
+    deleteUser,
+    setUserRole,
+  } = useAuth();
 
   const [newUsername, setNewUsername] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -314,26 +323,48 @@ function UsersTab({ onToast }: { onToast: (m: string) => void }) {
     onToast(t('userDeleted'));
   };
 
+  const handleToggleRole = (username: string, nextRole: 'super' | 'admin') => {
+    const res = setUserRole(username, nextRole);
+    if (!res.ok) {
+      onToast(t(res.error || 'notAuthorized'));
+      return;
+    }
+    onToast(t('saved'));
+  };
+
   return (
     <div className="admin-grid">
       <div className="panel-box">
-        <h3>{t('addUser')}</h3>
-        <form onSubmit={handleCreate}>
-          <div className="field">
-            <label>{t('newUsername')}</label>
-            <input value={newUsername} onChange={(e) => setNewUsername(e.target.value)} />
-          </div>
-          <div className="field">
-            <label>{t('newPassword')}</label>
-            <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
-          </div>
-          {createError && <div className="field-error">{createError}</div>}
-          <button type="submit" className="btn-primary">
-            {t('createUser')}
-          </button>
-        </form>
+        {!isSuperAdmin && (
+          <>
+            <div className="field-error" style={{ marginBottom: 16 }}>
+              {t('onlySuperCanManage')}
+            </div>
+            <div className="hr-space" />
+          </>
+        )}
 
-        <div className="hr-space" />
+        {isSuperAdmin && (
+          <>
+            <h3>{t('addUser')}</h3>
+            <form onSubmit={handleCreate}>
+              <div className="field">
+                <label>{t('newUsername')}</label>
+                <input value={newUsername} onChange={(e) => setNewUsername(e.target.value)} />
+              </div>
+              <div className="field">
+                <label>{t('newPassword')}</label>
+                <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
+              </div>
+              {createError && <div className="field-error">{createError}</div>}
+              <button type="submit" className="btn-primary">
+                {t('createUser')}
+              </button>
+            </form>
+
+            <div className="hr-space" />
+          </>
+        )}
 
         <h3>{t('changeUsername')}</h3>
         <form onSubmit={handleChangeUsername}>
@@ -370,19 +401,36 @@ function UsersTab({ onToast }: { onToast: (m: string) => void }) {
         <h3>
           {t('users')} — {users.length}
         </h3>
-        {users.map((u) => (
-          <div className="user-row" key={u.username}>
-            <div>
-              <span className="uname">{u.username}</span>
-              {u.username === currentUser && <span className="you">({t('loggedInAs').split(' ').pop()})</span>}
+        {users.map((u) => {
+          const protectedUser = u.username.toLowerCase() === 'amonovvv';
+          return (
+            <div className="user-row" key={u.username}>
+              <div>
+                <span className="uname">{u.username}</span>
+                {u.username === currentUser && <span className="you">({t('loggedInAs').split(' ').pop()})</span>}
+                <span className="you" style={{ color: u.role === 'super' ? 'var(--gold-light)' : 'var(--muted)' }}>
+                  {' '}
+                  · {u.role === 'super' ? t('roleSuper') : t('roleAdmin')}
+                  {protectedUser ? ' 🛡' : ''}
+                </span>
+              </div>
+              {isSuperAdmin && u.username !== currentUser && !protectedUser && (
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button
+                    className="btn-secondary"
+                    style={{ padding: '8px 12px', fontSize: 12.5 }}
+                    onClick={() => handleToggleRole(u.username, u.role === 'super' ? 'admin' : 'super')}
+                  >
+                    {u.role === 'super' ? t('removeSuperAdmin') : t('makeSuperAdmin')}
+                  </button>
+                  <button className="btn-danger" onClick={() => handleDelete(u.username)}>
+                    {t('delete')}
+                  </button>
+                </div>
+              )}
             </div>
-            {u.username !== currentUser && (
-              <button className="btn-danger" onClick={() => handleDelete(u.username)}>
-                {t('delete')}
-              </button>
-            )}
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

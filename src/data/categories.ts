@@ -17,3 +17,43 @@ export const DEFAULT_CATEGORIES: Category[] = [
   { tag: 'muzqaymoq', ru: 'Мороженое', uz: 'Muzqaymoq', en: 'Ice cream' },
 ];
 
+export interface CategoryGroup {
+  key: string;
+  tags: string[];
+  ru: string;
+  uz: string;
+  en: string;
+}
+
+// Top-level sections shown on the welcome screen. Any category tag not listed
+// here (e.g. a brand-new hashtag created later from the admin panel) falls
+// back to the first group ("milliy") so nothing ever gets lost.
+export const CATEGORY_GROUPS: CategoryGroup[] = [
+  {
+    key: 'milliy',
+    tags: ['salatlar', 'non', 'sovuqgazak', 'somsa', 'souslar', 'uygur', 'buyurtma', 'kabob', 'barbekyu', 'baliq'],
+    ru: 'Миллий таом',
+    uz: 'Milliy taom',
+    en: 'National dishes',
+  },
+  {
+    key: 'yevropa',
+    tags: ['yevropa'],
+    ru: 'Европа таом',
+    uz: 'Yevropa taom',
+    en: 'European dishes',
+  },
+  {
+    key: 'bar',
+    tags: ['issiqichimlik', 'salqinichimlik', 'muzqaymoq'],
+    ru: 'Бар и десерты',
+    uz: 'Bar va desertlar',
+    en: 'Bar & desserts',
+  },
+];
+
+export function groupForTag(tag: string): CategoryGroup {
+  return CATEGORY_GROUPS.find((g) => g.tags.includes(tag)) || CATEGORY_GROUPS[0];
+}
+
+
