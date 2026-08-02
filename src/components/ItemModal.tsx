@@ -1,14 +1,15 @@
 import type { MenuItem } from '../types';
 import { useLang } from '../context/LangContext';
 import { useMenu } from '../context/MenuContext';
-import { fmtPrice } from '../utils';
+import { fmtPrice, tName } from '../utils';
 import { CloseIcon, DishIcon } from './Icons';
 
 export default function ItemModal({ item, onClose }: { item: MenuItem; onClose: () => void }) {
   const { lang, t } = useLang();
   const { categories } = useMenu();
-  const cat = categories.find((c) => c.tag === item.tag);
-  const catLabel = cat ? cat[lang] : item.tag;
+  const cat = categories.find((c) => c.id === item.category_id);
+  const catLabel = cat ? tName(cat.name, lang) : '';
+  const name = tName(item.title, lang);
 
   return (
     <div
@@ -21,10 +22,10 @@ export default function ItemModal({ item, onClose }: { item: MenuItem; onClose: 
         <button className="close-btn" onClick={onClose} aria-label="close">
           <CloseIcon />
         </button>
-        <div className="sheet-photo">{item.photo ? <img src={item.photo} alt={item.name} /> : <DishIcon />}</div>
+        <div className="sheet-photo">{item.photo ? <img src={item.photo} alt={name} /> : <DishIcon />}</div>
         <div className="sheet-body">
-          <div className="sheet-tag">{catLabel}</div>
-          <div className="sheet-name">{item.name}</div>
+          {catLabel ? <div className="sheet-tag">{catLabel}</div> : null}
+          <div className="sheet-name">{name}</div>
           {item.weight ? (
             <div className="sheet-weight">
               {t('weight')}: {item.weight}
@@ -36,4 +37,3 @@ export default function ItemModal({ item, onClose }: { item: MenuItem; onClose: 
     </div>
   );
 }
-

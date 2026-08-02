@@ -27,13 +27,15 @@ function AppRoutes() {
 }
 
 const MIN_PRELOADER_MS = 500;
-const SAFETY_TIMEOUT_MS = 4000;
+const SAFETY_TIMEOUT_MS = 6000;
 
 function BootGate({ children }: { children: React.ReactNode }) {
-  const { items } = useMenu();
+  const { items, loading } = useMenu();
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
+    if (loading || ready) return;
+
     let cancelled = false;
     const start = Date.now();
 
@@ -45,9 +47,12 @@ function BootGate({ children }: { children: React.ReactNode }) {
           img.onload = () => resolve();
           img.onerror = () => resolve();
           img.src = src;
-        })
+        }),
     );
-    const fontsReady = (document as any).fonts?.ready?.catch?.(() => undefined) ?? Promise.resolve();
+    const fontsReady =
+      (document as Document & { fonts?: { ready: Promise<unknown> } }).fonts?.ready?.catch?.(
+        () => undefined,
+      ) ?? Promise.resolve();
     const everything = Promise.all([...imagePromises, fontsReady]);
     const safety = new Promise<void>((resolve) => setTimeout(resolve, SAFETY_TIMEOUT_MS));
 
@@ -63,9 +68,7 @@ function BootGate({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true;
     };
-    // Only run once on boot — item photos already present at mount are what we preload.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [loading, items, ready]);
 
   if (!ready) return <Preloader />;
   return <>{children}</>;
@@ -88,4 +91,3 @@ export default function App() {
     </ThemeProvider>
   );
 }
-

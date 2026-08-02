@@ -1,17 +1,21 @@
 import { useNavigate } from 'react-router-dom';
 import { useLang } from '../context/LangContext';
+import { useMenu } from '../context/MenuContext';
 import { TrayIcon } from './Icons';
-import { CATEGORY_GROUPS } from '../data/categories';
 import type { Lang } from '../types';
+import { tName } from '../utils';
 
 export default function Welcome() {
   const { lang, setLang, t } = useLang();
+  const { sections } = useMenu();
   const navigate = useNavigate();
   const langs: Lang[] = ['ru', 'uz', 'en'];
 
-  const goToGroup = (groupKey: string) => {
-    navigate('/menu', { state: { group: groupKey } });
+  const goToGroup = (sectionId: number) => {
+    navigate('/menu', { state: { sectionId } });
   };
+
+  const sorted = [...sections].sort((a, b) => a.sort_order - b.sort_order || a.id - b.id);
 
   return (
     <div className="welcome">
@@ -25,15 +29,25 @@ export default function Welcome() {
       <p className="welcome-sub" dangerouslySetInnerHTML={{ __html: t('welcomeSub') }} />
 
       <div className="welcome-sections">
-        {CATEGORY_GROUPS.map((g, idx) => (
-          <button key={g.key} className="welcome-section-btn" onClick={() => goToGroup(g.key)}>
+        {sorted.length === 0 ? (
+          <button className="welcome-section-btn" onClick={() => navigate('/menu')}>
             <span className="label">
-              <span className="num">{idx + 1}</span>
-              <span>{g[lang]}</span>
+              <span className="num">1</span>
+              <span>{t('enter')}</span>
             </span>
             <span className="arrow">→</span>
           </button>
-        ))}
+        ) : (
+          sorted.map((s, idx) => (
+            <button key={s.id} className="welcome-section-btn" onClick={() => goToGroup(s.id)}>
+              <span className="label">
+                <span className="num">{idx + 1}</span>
+                <span>{tName(s.name, lang)}</span>
+              </span>
+              <span className="arrow">→</span>
+            </button>
+          ))
+        )}
       </div>
 
       <div className="welcome-langs">
@@ -47,4 +61,3 @@ export default function Welcome() {
     </div>
   );
 }
-

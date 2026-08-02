@@ -1,8 +1,4 @@
-import type { Lang } from './types';
-
-export function uid(): string {
-  return 'id_' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
-}
+import type { Lang, Translation } from './types';
 
 export function fmtPrice(price: number, lang: Lang): string {
   const n = Number(price) || 0;
@@ -11,30 +7,12 @@ export function fmtPrice(price: number, lang: Lang): string {
   return `${s} ${suf}`;
 }
 
-function bufToHex(buf: ArrayBuffer): string {
-  return Array.from(new Uint8Array(buf))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
+export function tName(tr: Translation | null | undefined, lang: Lang): string {
+  if (!tr) return '';
+  return (tr[lang] || tr.ru || tr.uz || tr.en || '').trim();
 }
 
-export function randomSalt(): string {
-  const arr = new Uint8Array(16);
-  crypto.getRandomValues(arr);
-  return bufToHex(arr.buffer);
+export function makeTranslation(value: string): Translation {
+  const v = value.trim();
+  return { uz: v, ru: v, en: v };
 }
-
-export async function hashPassword(password: string, salt: string): Promise<string> {
-  const enc = new TextEncoder();
-  const data = enc.encode(salt + ':' + password);
-  const digest = await crypto.subtle.digest('SHA-256', data);
-  return bufToHex(digest);
-}
-
-export function slugifyTag(input: string): string {
-  return input
-    .trim()
-    .toLowerCase()
-    .replace(/^#/, '')
-    .replace(/\s+/g, '');
-}
-

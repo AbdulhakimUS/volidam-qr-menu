@@ -4,7 +4,7 @@ import { useLang } from '../context/LangContext';
 import { useAuth } from '../context/AuthContext';
 import { useMenu } from '../context/MenuContext';
 import type { MenuItem } from '../types';
-import { fmtPrice, slugifyTag } from '../utils';
+import { fmtPrice, makeTranslation, tName } from '../utils';
 import { DishIcon, EditIcon, TrashIcon } from '../components/Icons';
 
 function useToast() {
@@ -24,10 +24,7 @@ export default function AdminPanel() {
   const [tab, setTab] = useState<'menu' | 'users'>('menu');
   const { msg, show } = useToast();
 
-  if (!currentUser) {
-    // Should not normally happen (route guard redirects), but keep as a safe fallback.
-    return null;
-  }
+  if (!currentUser) return null;
 
   return (
     <div className="admin-shell">
@@ -37,7 +34,7 @@ export default function AdminPanel() {
           <Link to="/menu" className="btn-secondary">
             {t('backToMenu')}
           </Link>
-          <button className="btn-secondary" onClick={logout}>
+          <button className="btn-secondary" onClick={() => void logout()}>
             {t('logout')}
           </button>
         </div>
@@ -59,24 +56,37 @@ export default function AdminPanel() {
   );
 }
 
-/* ============================= MENU TAB ============================= */
-
 function emptyForm() {
-  return { id: '', name: '', price: '', weight: '', tag: '', photo: null as string | null };
+  return {
+    id: 0,
+    name: '',
+    price: '',
+    weight: '',
+    categoryId: '' as string | number,
+    photo: null as string | null,
+  };
 }
 
 function MenuTab({ onToast }: { onToast: (m: string) => void }) {
   const { t, lang } = useLang();
-  const { items, categories, addItem, updateItem, deleteItem } = useMenu();
+  const { items, categories, sections, addItem, updateItem, deleteItem } = useMenu();
   const [form, setForm] = useState(emptyForm());
   const [error, setError] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState('');
   const fileInput = useRef<HTMLInputElement>(null);
 
   const editing = !!form.id;
 
   const startEdit = (it: MenuItem) => {
-    setForm({ id: it.id, name: it.name, price: String(it.price), weight: it.weight || '', tag: it.tag, photo: it.photo || null });
+    setForm({
+      id: it.id,
+      name: tName(it.title, lang) || it.title.ru || it.title.uz || it.title.en,
+      price: String(it.price),
+      weight: it.weight || '',
+      categoryId: it.category_id,
+      photo: it.photo || null,
+    });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
   const resetForm = () => setForm(emptyForm());
@@ -103,44 +113,72 @@ function MenuTab({ onToast }: { onToast: (m: string) => void }) {
     reader.readAsDataURL(file);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const name = form.name.trim();
     const price = Number(form.price);
-    const tag = slugifyTag(form.tag);
-    if (!name || !price || !tag) {
+    const category_id = Number(form.categoryId);
+    if (!name || !price || !category_id) {
       setError(true);
       return;
     }
     setError(false);
-    const payload = { name, price, weight: form.weight.trim(), tag, photo: form.photo };
-    if (editing) updateItem(form.id, payload);
-    else addItem(payload);
-    onToast(t('saved'));
-    resetForm();
+    setSaving(true);
+    try {
+      const payload = {
+        title: makeTranslation(name),
+        price,
+        weight: form.weight.trim(),
+        category_id,
+        photo: form.photo,
+      };
+      if (editing) await updateItem(form.id, payload);
+      else await addItem(payload);
+      onToast(t('saved'));
+      resetForm();
+    } catch (err) {
+      onToast(err instanceof Error ? err.message : t('fillRequired'));
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: number) => {
     if (!confirm(t('confirmDelete'))) return;
-    deleteItem(id);
-    onToast(t('deleted'));
+    try {
+      await deleteItem(id);
+      onToast(t('deleted'));
+    } catch (err) {
+      onToast(err instanceof Error ? err.message : t('deleted'));
+    }
   };
 
   const list = items
-    .filter((it) => !search.trim() || it.name.toLowerCase().includes(search.trim().toLowerCase()))
+    .filter((it) => {
+      if (!search.trim()) return true;
+      return tName(it.title, lang).toLowerCase().includes(search.trim().toLowerCase());
+    })
     .slice()
-    .sort((a, b) => a.tag.localeCompare(b.tag) || a.name.localeCompare(b.name));
+    .sort((a, b) => {
+      const ca = categories.find((c) => c.id === a.category_id);
+      const cb = categories.find((c) => c.id === b.category_id);
+      const na = tName(a.title, lang);
+      const nb = tName(b.title, lang);
+      return (ca?.order ?? 0) - (cb?.order ?? 0) || na.localeCompare(nb);
+    });
 
-  const catLabel = (tag: string) => {
-    const c = categories.find((c) => c.tag === tag);
-    return c ? c[lang as keyof typeof c] : tag;
+  const catLabel = (id: number) => {
+    const c = categories.find((c) => c.id === id);
+    return c ? tName(c.name, lang) : String(id);
   };
+
+  const sortedCats = [...categories].sort((a, b) => a.order - b.order || a.id - b.id);
 
   return (
     <div className="admin-grid">
       <div className="panel-box">
         <h3>{editing ? t('editItem') : t('addItem')}</h3>
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={(e) => void handleSubmit(e)}>
           <div className="field">
             <label>{t('name')} *</label>
             <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder={t('name')} />
@@ -160,26 +198,28 @@ function MenuTab({ onToast }: { onToast: (m: string) => void }) {
             <input value={form.weight} onChange={(e) => setForm({ ...form, weight: e.target.value })} placeholder="250 гр" />
           </div>
           <div className="field">
-            <label>{t('hashtag')} *</label>
-            <input
-              list="tagList"
-              value={form.tag}
-              onChange={(e) => setForm({ ...form, tag: e.target.value })}
-              placeholder="salatlar"
-            />
-            <datalist id="tagList">
-              {categories.map((c) => (
-                <option key={c.tag} value={c.tag} />
-              ))}
-            </datalist>
-            <div className="datalist-hint">{t('hashtagHint')}</div>
+            <label>{t('category')} *</label>
+            <select
+              value={form.categoryId === '' ? '' : String(form.categoryId)}
+              onChange={(e) => setForm({ ...form, categoryId: e.target.value ? Number(e.target.value) : '' })}
+            >
+              <option value="">{t('selectCategory')}</option>
+              {sortedCats.map((c) => {
+                const section = sections.find((s) => s.id === c.sectionId);
+                const prefix = section ? `${tName(section.name, lang)} · ` : '';
+                return (
+                  <option key={c.id} value={c.id}>
+                    {prefix}
+                    {tName(c.name, lang)}
+                  </option>
+                );
+              })}
+            </select>
+            {sortedCats.length === 0 && <div className="datalist-hint">{t('noCategories')}</div>}
           </div>
           <div className="field">
             <label>{t('photo')}</label>
-            <div
-              className="photo-upload"
-              onClick={() => fileInput.current?.click()}
-            >
+            <div className="photo-upload" onClick={() => fileInput.current?.click()}>
               {form.photo && <img src={form.photo} alt="" />}
               <div>{t('uploadPhoto')}</div>
               <input
@@ -202,7 +242,7 @@ function MenuTab({ onToast }: { onToast: (m: string) => void }) {
           </div>
           {error && <div className="field-error">{t('fillRequired')}</div>}
           <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
-            <button type="submit" className="btn-primary">
+            <button type="submit" className="btn-primary" disabled={saving}>
               {t('save')}
             </button>
             {editing && (
@@ -226,18 +266,18 @@ function MenuTab({ onToast }: { onToast: (m: string) => void }) {
             <div className="admin-item" key={it.id}>
               <div className="thumb">{it.photo ? <img src={it.photo} alt="" /> : <DishIcon />}</div>
               <div className="info">
-                <div className="n">{it.name}</div>
+                <div className="n">{tName(it.title, lang)}</div>
                 <div className="m">
                   <span>{fmtPrice(it.price, lang)}</span>
                   <span>·</span>
-                  <span>{catLabel(it.tag)}</span>
+                  <span>{catLabel(it.category_id)}</span>
                 </div>
               </div>
               <div className="acts">
                 <button className="icon-btn" title={t('edit')} onClick={() => startEdit(it)}>
                   <EditIcon />
                 </button>
-                <button className="icon-btn" title={t('delete')} onClick={() => handleDelete(it.id)}>
+                <button className="icon-btn" title={t('delete')} onClick={() => void handleDelete(it.id)}>
                   <TrashIcon />
                 </button>
               </div>
@@ -248,8 +288,6 @@ function MenuTab({ onToast }: { onToast: (m: string) => void }) {
     </div>
   );
 }
-
-/* ============================= USERS TAB ============================= */
 
 function UsersTab({ onToast }: { onToast: (m: string) => void }) {
   const { t } = useLang();
@@ -301,9 +339,9 @@ function UsersTab({ onToast }: { onToast: (m: string) => void }) {
     onToast(t('passwordChanged'));
   };
 
-  const handleChangeUsername = (e: React.FormEvent) => {
+  const handleChangeUsername = async (e: React.FormEvent) => {
     e.preventDefault();
-    const res = changeOwnUsername(nextUsername);
+    const res = await changeOwnUsername(nextUsername);
     if (!res.ok) {
       setUnameError(t(res.error || 'fillAllFields'));
       return;
@@ -313,9 +351,9 @@ function UsersTab({ onToast }: { onToast: (m: string) => void }) {
     onToast(t('usernameChanged'));
   };
 
-  const handleDelete = (username: string) => {
+  const handleDelete = async (id: number, username: string) => {
     if (!confirm(`${t('delete')} "${username}"?`)) return;
-    const res = deleteUser(username);
+    const res = await deleteUser(id);
     if (!res.ok) {
       onToast(t(res.error || 'cannotDeleteSelf'));
       return;
@@ -323,8 +361,8 @@ function UsersTab({ onToast }: { onToast: (m: string) => void }) {
     onToast(t('userDeleted'));
   };
 
-  const handleToggleRole = (username: string, nextRole: 'super' | 'admin') => {
-    const res = setUserRole(username, nextRole);
+  const handleToggleRole = async (id: number, nextRole: 'super' | 'admin') => {
+    const res = await setUserRole(id, nextRole);
     if (!res.ok) {
       onToast(t(res.error || 'notAuthorized'));
       return;
@@ -347,7 +385,7 @@ function UsersTab({ onToast }: { onToast: (m: string) => void }) {
         {isSuperAdmin && (
           <>
             <h3>{t('addUser')}</h3>
-            <form onSubmit={handleCreate}>
+            <form onSubmit={(e) => void handleCreate(e)}>
               <div className="field">
                 <label>{t('newUsername')}</label>
                 <input value={newUsername} onChange={(e) => setNewUsername(e.target.value)} />
@@ -367,7 +405,7 @@ function UsersTab({ onToast }: { onToast: (m: string) => void }) {
         )}
 
         <h3>{t('changeUsername')}</h3>
-        <form onSubmit={handleChangeUsername}>
+        <form onSubmit={(e) => void handleChangeUsername(e)}>
           <div className="field">
             <label>{t('newUsernameLabel')}</label>
             <input value={nextUsername} onChange={(e) => setNextUsername(e.target.value)} placeholder={currentUser || ''} />
@@ -381,7 +419,7 @@ function UsersTab({ onToast }: { onToast: (m: string) => void }) {
         <div className="hr-space" />
 
         <h3>{t('changePassword')}</h3>
-        <form onSubmit={handleChangePassword}>
+        <form onSubmit={(e) => void handleChangePassword(e)}>
           <div className="field">
             <label>{t('currentPassword')}</label>
             <input type="password" value={curPass} onChange={(e) => setCurPass(e.target.value)} />
@@ -404,13 +442,13 @@ function UsersTab({ onToast }: { onToast: (m: string) => void }) {
         {users.map((u) => {
           const protectedUser = u.username.toLowerCase() === 'amonovvv';
           return (
-            <div className="user-row" key={u.username}>
+            <div className="user-row" key={u.id}>
               <div>
                 <span className="uname">{u.username}</span>
                 {u.username === currentUser && <span className="you">({t('loggedInAs').split(' ').pop()})</span>}
-                <span className="you" style={{ color: u.role === 'super' ? 'var(--gold-light)' : 'var(--muted)' }}>
+                <span className="you" style={{ color: u.admin_status === 'super' ? 'var(--gold-light)' : 'var(--muted)' }}>
                   {' '}
-                  · {u.role === 'super' ? t('roleSuper') : t('roleAdmin')}
+                  · {u.admin_status === 'super' ? t('roleSuper') : t('roleAdmin')}
                   {protectedUser ? ' 🛡' : ''}
                 </span>
               </div>
@@ -419,11 +457,11 @@ function UsersTab({ onToast }: { onToast: (m: string) => void }) {
                   <button
                     className="btn-secondary"
                     style={{ padding: '8px 12px', fontSize: 12.5 }}
-                    onClick={() => handleToggleRole(u.username, u.role === 'super' ? 'admin' : 'super')}
+                    onClick={() => void handleToggleRole(u.id, u.admin_status === 'super' ? 'admin' : 'super')}
                   >
-                    {u.role === 'super' ? t('removeSuperAdmin') : t('makeSuperAdmin')}
+                    {u.admin_status === 'super' ? t('removeSuperAdmin') : t('makeSuperAdmin')}
                   </button>
-                  <button className="btn-danger" onClick={() => handleDelete(u.username)}>
+                  <button className="btn-danger" onClick={() => void handleDelete(u.id, u.username)}>
                     {t('delete')}
                   </button>
                 </div>
@@ -435,4 +473,3 @@ function UsersTab({ onToast }: { onToast: (m: string) => void }) {
     </div>
   );
 }
-

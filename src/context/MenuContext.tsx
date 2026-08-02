@@ -1,73 +1,109 @@
-import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
-import type { Category, MenuItem } from '../types';
-import { DEFAULT_CATEGORIES } from '../data/categories';
-import { SEED_ITEMS } from '../data/seedItems';
-import { uid } from '../utils';
-
-const ITEMS_KEY = 'volidam-menu-items';
+import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import type { Category, MenuItem, Section, Translation } from '../types';
+import * as api from '../api/client';
+import { ApiError } from '../api/client';
 
 interface MenuCtx {
   items: MenuItem[];
   categories: Category[];
-  addItem: (item: Omit<MenuItem, 'id'>) => void;
-  updateItem: (id: string, item: Omit<MenuItem, 'id'>) => void;
-  deleteItem: (id: string) => void;
+  sections: Section[];
+  loading: boolean;
+  error: string | null;
+  refresh: () => Promise<void>;
+  addItem: (item: {
+    category_id: number;
+    title: Translation;
+    photo?: string | null;
+    weight?: string;
+    price: number;
+  }) => Promise<void>;
+  updateItem: (
+    id: number,
+    item: Partial<{
+      category_id: number;
+      title: Translation;
+      photo: string | null;
+      weight: string;
+      price: number;
+    }>,
+  ) => Promise<void>;
+  deleteItem: (id: number) => Promise<void>;
+  addCategory: (payload: {
+    name: Translation;
+    order: number;
+    sectionId: number;
+  }) => Promise<Category>;
 }
 
 const Ctx = createContext<MenuCtx | null>(null);
 
-function loadInitialItems(): MenuItem[] {
-  try {
-    const raw = localStorage.getItem(ITEMS_KEY);
-    if (raw) return JSON.parse(raw);
-  } catch {
-    /* ignore corrupt storage */
-  }
-  const seeded = SEED_ITEMS.map((it) => ({ ...it, id: uid(), photo: null }));
-  try {
-    localStorage.setItem(ITEMS_KEY, JSON.stringify(seeded));
-  } catch {
-    /* storage might be full — app still works in-memory */
-  }
-  return seeded;
-}
-
 export function MenuProvider({ children }: { children: React.ReactNode }) {
-  const [items, setItems] = useState<MenuItem[]>(loadInitialItems);
+  const [items, setItems] = useState<MenuItem[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [sections, setSections] = useState<Section[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [menuItems, cats, secs] = await Promise.all([
+        api.fetchMenuItems(),
+        api.fetchCategories(),
+        api.fetchSections(),
+      ]);
+      setItems(menuItems);
+      setCategories(cats);
+      setSections(secs);
+    } catch (err) {
+      const message = err instanceof ApiError ? err.message : 'Failed to load menu';
+      setError(message);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(ITEMS_KEY, JSON.stringify(items));
-    } catch {
-      /* storage might be full (e.g. too many large photos) */
-    }
-  }, [items]);
+    void refresh();
+  }, [refresh]);
 
-  const categories = useMemo<Category[]>(() => {
-    const known = new Set(DEFAULT_CATEGORIES.map((c) => c.tag));
-    const extra: Category[] = [];
-    items.forEach((it) => {
-      if (it.tag && !known.has(it.tag) && !extra.find((c) => c.tag === it.tag)) {
-        const label = it.tag.charAt(0).toUpperCase() + it.tag.slice(1);
-        extra.push({ tag: it.tag, ru: label, uz: label, en: label });
-        known.add(it.tag);
-      }
-    });
-    return DEFAULT_CATEGORIES.concat(extra);
-  }, [items]);
+  const addItem: MenuCtx['addItem'] = async (item) => {
+    const created = await api.createMenuItem(item);
+    setItems((prev) => [...prev, created]);
+  };
 
-  const addItem: MenuCtx['addItem'] = (item) => {
-    setItems((prev) => [...prev, { ...item, id: uid() }]);
+  const updateItem: MenuCtx['updateItem'] = async (id, item) => {
+    const updated = await api.updateMenuItem(id, item);
+    setItems((prev) => prev.map((it) => (it.id === id ? updated : it)));
   };
-  const updateItem: MenuCtx['updateItem'] = (id, item) => {
-    setItems((prev) => prev.map((it) => (it.id === id ? { ...item, id } : it)));
-  };
-  const deleteItem: MenuCtx['deleteItem'] = (id) => {
+
+  const deleteItem: MenuCtx['deleteItem'] = async (id) => {
+    await api.deleteMenuItem(id);
     setItems((prev) => prev.filter((it) => it.id !== id));
   };
 
+  const addCategory: MenuCtx['addCategory'] = async (payload) => {
+    const created = await api.createCategory(payload);
+    setCategories((prev) => [...prev, created].sort((a, b) => a.order - b.order));
+    return created;
+  };
+
   return (
-    <Ctx.Provider value={{ items, categories, addItem, updateItem, deleteItem }}>
+    <Ctx.Provider
+      value={{
+        items,
+        categories,
+        sections,
+        loading,
+        error,
+        refresh,
+        addItem,
+        updateItem,
+        deleteItem,
+        addCategory,
+      }}
+    >
       {children}
     </Ctx.Provider>
   );
@@ -78,4 +114,3 @@ export function useMenu() {
   if (!ctx) throw new Error('useMenu must be used within MenuProvider');
   return ctx;
 }
-

@@ -1,29 +1,43 @@
 export type Lang = 'ru' | 'uz' | 'en';
 export type ThemeMode = 'light' | 'dark';
 
-export interface MenuItem {
-  id: string;
-  name: string;
-  weight?: string;
-  price: number;
-  tag: string;
-  photo?: string | null;
+export interface Translation {
+  uz: string;
+  ru: string;
+  en: string;
+}
+
+export interface Section {
+  id: number;
+  name: Translation;
+  sort_order: number;
 }
 
 export interface Category {
-  tag: string;
-  ru: string;
-  uz: string;
-  en: string;
+  id: number;
+  name: Translation;
+  order: number;
+  sectionId: number;
+}
+
+export interface MenuItem {
+  id: number;
+  category_id: number;
+  title: Translation;
+  photo: string | null;
+  weight?: string;
+  price: number;
 }
 
 export type AdminRole = 'super' | 'admin';
 
 export interface AdminUser {
+  id: number;
   username: string;
-  passwordHash: string;
-  salt: string;
-  role: AdminRole;
-  createdAt: number;
+  admin_status: AdminRole;
 }
 
+export interface ApiErrorBody {
+  success: false;
+  error: string;
+}

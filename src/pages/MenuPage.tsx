@@ -3,71 +3,97 @@ import { Link, useLocation } from 'react-router-dom';
 import { useLang } from '../context/LangContext';
 import { useTheme } from '../context/ThemeContext';
 import { useMenu } from '../context/MenuContext';
-import { CATEGORY_GROUPS, groupForTag } from '../data/categories';
 import type { Lang, MenuItem } from '../types';
 import { TrayIcon, SearchIcon, EmptyIcon, SunIcon, MoonIcon } from '../components/Icons';
 import ItemCard from '../components/ItemCard';
 import ItemModal from '../components/ItemModal';
+import { tName } from '../utils';
 
 interface NavState {
-  group?: string;
+  sectionId?: number;
 }
 
 export default function MenuPage() {
   const { lang, setLang, t } = useLang();
   const { theme, toggleTheme } = useTheme();
-  const { items, categories } = useMenu();
+  const { items, categories, sections, error } = useMenu();
   const location = useLocation();
   const [query, setQuery] = useState('');
   const [activeItem, setActiveItem] = useState<MenuItem | null>(null);
-  const sectionRefs = useRef<Map<string, HTMLDivElement>>(new Map());
-  const groupRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const sectionRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+  const groupRefs = useRef<Map<number, HTMLDivElement>>(new Map());
   const langs: Lang[] = ['ru', 'uz', 'en'];
 
   const filtered = useMemo(() => {
     if (!query.trim()) return items;
     const q = query.trim().toLowerCase();
-    return items.filter((i) => i.name.toLowerCase().includes(q));
-  }, [items, query]);
+    return items.filter((i) => tName(i.title, lang).toLowerCase().includes(q));
+  }, [items, query, lang]);
 
   const grouped = useMemo(() => {
-    const g = new Map<string, MenuItem[]>();
+    const g = new Map<number, MenuItem[]>();
     filtered.forEach((it) => {
-      if (!g.has(it.tag)) g.set(it.tag, []);
-      g.get(it.tag)!.push(it);
+      if (!g.has(it.category_id)) g.set(it.category_id, []);
+      g.get(it.category_id)!.push(it);
     });
     return g;
   }, [filtered]);
 
-  const activeCats = categories.filter((c) => items.some((i) => i.tag === c.tag));
+  const sortedSections = useMemo(
+    () => [...sections].sort((a, b) => a.sort_order - b.sort_order || a.id - b.id),
+    [sections],
+  );
 
-  // Scroll to the group requested from the Welcome screen, once sections exist.
+  const sortedCategories = useMemo(
+    () => [...categories].sort((a, b) => a.order - b.order || a.id - b.id),
+    [categories],
+  );
+
+  const activeCats = sortedCategories.filter((c) => (grouped.get(c.id)?.length ?? 0) > 0);
+  const knownSectionIds = useMemo(() => new Set(sortedSections.map((s) => s.id)), [sortedSections]);
+  const orphanCats = activeCats.filter((c) => !knownSectionIds.has(c.sectionId));
+
   useEffect(() => {
     const state = location.state as NavState | null;
-    const groupKey = state?.group;
-    if (!groupKey) return;
+    const sectionId = state?.sectionId;
+    if (sectionId == null) return;
     const raf = requestAnimationFrame(() => {
-      const el = groupRefs.current.get(groupKey);
+      const el = groupRefs.current.get(sectionId);
       if (el) {
         const y = el.getBoundingClientRect().top + window.scrollY - 132;
         window.scrollTo({ top: y, behavior: 'smooth' });
       }
     });
     return () => cancelAnimationFrame(raf);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [location.key, items.length]);
+  }, [location.key, items.length, sections.length]);
 
-  const scrollToCategory = (tag: string) => {
-    if (tag === 'all') {
+  const scrollToCategory = (id: number | 'all') => {
+    if (id === 'all') {
       window.scrollTo({ top: 0, behavior: 'smooth' });
       return;
     }
-    const el = sectionRefs.current.get(tag);
+    const el = sectionRefs.current.get(id);
     if (el) {
       const y = el.getBoundingClientRect().top + window.scrollY - 132;
       window.scrollTo({ top: y, behavior: 'smooth' });
     }
   };
+
+  const renderCatBlock = (c: (typeof activeCats)[number]) => (
+    <div
+      key={c.id}
+      ref={(el) => {
+        if (el) sectionRefs.current.set(c.id, el);
+      }}
+    >
+      <div className="section-title">{tName(c.name, lang)}</div>
+      <div className="grid">
+        {grouped.get(c.id)!.map((it) => (
+          <ItemCard key={it.id} item={it} onClick={() => setActiveItem(it)} />
+        ))}
+      </div>
+    </div>
+  );
 
   return (
     <div className="app-shell">
@@ -101,52 +127,52 @@ export default function MenuPage() {
             {t('all')}
           </button>
           {activeCats.map((c) => (
-            <button key={c.tag} className="chip" onClick={() => scrollToCategory(c.tag)}>
-              {c[lang]}
+            <button key={c.id} className="chip" onClick={() => scrollToCategory(c.id)}>
+              {tName(c.name, lang)}
             </button>
           ))}
         </div>
       </header>
 
       <div className="menu-wrap">
-        {filtered.length === 0 ? (
+        {error && (
+          <div className="empty-state" style={{ marginBottom: 16 }}>
+            <div>{error}</div>
+          </div>
+        )}
+        {filtered.length === 0 && !error ? (
           <div className="empty-state">
             <EmptyIcon />
             <div>{t('empty')}</div>
           </div>
+        ) : sortedSections.length === 0 && activeCats.length === 0 ? (
+          <div className="grid">
+            {filtered.map((it) => (
+              <ItemCard key={it.id} item={it} onClick={() => setActiveItem(it)} />
+            ))}
+          </div>
         ) : (
-          CATEGORY_GROUPS.map((group) => {
-            const catsInGroup = activeCats.filter((c) => groupForTag(c.tag).key === group.key && grouped.get(c.tag)?.length);
-            if (catsInGroup.length === 0) return null;
-            return (
-              <div
-                key={group.key}
-                ref={(el) => {
-                  if (el) groupRefs.current.set(group.key, el);
-                }}
-              >
-                <div className="group-title">
-                  {group[lang]}
-                  <span className="bar" />
-                </div>
-                {catsInGroup.map((c) => (
-                  <div
-                    key={c.tag}
-                    ref={(el) => {
-                      if (el) sectionRefs.current.set(c.tag, el);
-                    }}
-                  >
-                    <div className="section-title">{c[lang]}</div>
-                    <div className="grid">
-                      {grouped.get(c.tag)!.map((it) => (
-                        <ItemCard key={it.id} item={it} onClick={() => setActiveItem(it)} />
-                      ))}
-                    </div>
+          <>
+            {sortedSections.map((section) => {
+              const catsInSection = activeCats.filter((c) => c.sectionId === section.id);
+              if (catsInSection.length === 0) return null;
+              return (
+                <div
+                  key={section.id}
+                  ref={(el) => {
+                    if (el) groupRefs.current.set(section.id, el);
+                  }}
+                >
+                  <div className="group-title">
+                    {tName(section.name, lang)}
+                    <span className="bar" />
                   </div>
-                ))}
-              </div>
-            );
-          })
+                  {catsInSection.map(renderCatBlock)}
+                </div>
+              );
+            })}
+            {orphanCats.length > 0 && <div key="orphan">{orphanCats.map(renderCatBlock)}</div>}
+          </>
         )}
       </div>
 
@@ -158,4 +184,3 @@ export default function MenuPage() {
     </div>
   );
 }
-
